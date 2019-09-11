@@ -8,6 +8,8 @@
  
  "use strict";
 
+Services.scriptloader.loadSubScript("chrome://eas4tbsync/content/includes/cardbookHttpRequest.js", this, "UTF-8");
+    
 var network = {  
     
     getEasURL: function(accountData) {
@@ -155,7 +157,7 @@ var network = {
         
         return new Promise(function(resolve,reject) {
             // Create request handler - API changed with TB60 to new XMKHttpRequest()
-            syncData.req = new XMLHttpRequest();
+            syncData.req = new CardbookHttpRequest();
             syncData.req.mozBackgroundRequest = true;
             syncData.req.open("POST", eas.network.getEasURL(syncData.accountData) + '?Cmd=' + command + '&User=' + encodeURIComponent(connection.user) + '&DeviceType=' +encodeURIComponent(deviceType) + '&DeviceId=' + deviceId, true);
             syncData.req.overrideMimeType("text/plain");
@@ -247,7 +249,7 @@ var network = {
                 }
             };
 
-            syncData.req.send(encoded);
+            syncData.req.send(wbxml);
             
         });
     },
@@ -718,7 +720,7 @@ var network = {
         try {
             let response = await new Promise(function(resolve, reject) {
                 // Create request handler - API changed with TB60 to new XMKHttpRequest()
-                let req = new XMLHttpRequest();
+                let req = new CardbookHttpRequest();
                 req.mozBackgroundRequest = true;
                 req.open("POST", eas.network.getEasURL(accountData) + '?Cmd=' + command + '&User=' + encodeURIComponent(authData.user) + '&DeviceType=' +encodeURIComponent(deviceType) + '&DeviceId=' + deviceId, true);
                 req.overrideMimeType("text/plain");
@@ -802,7 +804,7 @@ var network = {
             retry = false;
             
             let result = await new Promise(function(resolve,reject) {
-                syncData.req = new XMLHttpRequest();
+                syncData.req = new CardbookHttpRequest();
                 syncData.req.mozBackgroundRequest = true;
                 syncData.req.open("OPTIONS", eas.network.getEasURL(syncData.accountData), true);
                 syncData.req.overrideMimeType("text/plain");
@@ -1030,7 +1032,7 @@ var network = {
             let userAgent = eas.prefs.getCharPref("clientID.useragent"); //plus calendar.useragent.extra = Lightning/5.4.5.2
 
             // Create request handler - API changed with TB60 to new XMKHttpRequest()
-            let req = new XMLHttpRequest();
+            let req = new CardbookHttpRequest();
             req.mozBackgroundRequest = true;
             req.open(method, connection.url, true);
             req.timeout = maxtimeout;
