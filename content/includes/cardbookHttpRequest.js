@@ -59,17 +59,22 @@
 			},
 			
 			processResponse: function(aChannel, aContext, aStatus, aResult) {
+				self.xhr.httpchannel = aChannel;
+				self.xhr.responseText = aResult;
+				self.xhr.responseStatus = aStatus;
+				
 				try {
 					self.xhr.responseStatus = aChannel.responseStatus;
 				} catch (ex) {
+					console.log("Error: " + self.xhr.responseStatus);
 					self.onerror();
 					return;
 				}
-				self.xhr.httpchannel = aChannel;
 				self.xhr.responseStatusText = aChannel.responseStatusText;
 				self.xhr.responseText = aResult;
 				self.xhr.readyState = 4;
 				self.onreadystatechange();				
+				console.log("OK: " + self.xhr.responseStatus);
 				self.onload();
 			}
 		}		
@@ -185,6 +190,7 @@
 
 	send(data) {
 		console.log("Alternate XHR!");
+		console.log("Data: " + data);
 		let channel = Services.io.newChannelFromURI(
 			this.xhr.uri,
 			null,
@@ -246,7 +252,12 @@
 	get channel() {return this.xhr.httpchannel};
 	
 	getResponseHeader(header) {
-		return this.xhr.httpchannel.getResponseHeader(header);
+		try {
+			return this.xhr.httpchannel.getResponseHeader(header);
+		} catch (e) {
+			console.log("Failed to get header <"+header+">");
+		}
+		return null;
 	}
 	
 	
@@ -262,7 +273,8 @@
 		// silent ignore, no idea what this does
 	}
 	
-
+	//redirects
+	//handle Content-Length
 
 	/* not used by cardbook */
 	
