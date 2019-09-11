@@ -77,6 +77,12 @@
 
 	/** private **/
 	
+	_b64EncodeUnicode (aString) {
+		return btoa(encodeURIComponent(aString).replace(/%([0-9A-F]{2})/g, function(match, p1) {
+			return String.fromCharCode('0x' + p1);
+		}));
+	}
+
 	// copied from lightning
 	_prepHttpChannelUploadData(aHttpChannel, aMethod, aUploadData, aContentType) {
 		if (aUploadData) {
@@ -129,9 +135,10 @@
 	
 	_startTimeout() {
 		let rv = Components.results.NS_ERROR_NET_TIMEOUT;
+		let xhr = this.xhr;
 		let event = {
 			notify: function(timer) {
-				if (this.xhr.httpchannel) this.xhr.httpchannel.cancel(rv);
+				if (xhr.httpchannel) xhr.httpchannel.cancel(rv);
 			}
 		}
 		this.xhr.timer.initWithCallback(
@@ -163,7 +170,12 @@
 
 	open(method, url, async = true, user = "", password = "") {
 		this.xhr.method = method;
-		this.xhr.uri = Services.io.newURI(url);
+		try {
+			this.xhr.uri = Services.io.newURI(url);
+		} catch (e) {
+			Components.utils.reportError(e);
+			throw new Error("Invalid URL <"+url+">");
+		}
 		this.xhr.async = async; //we should throw on false
 		this.xhr.user = user;
 		this.xhr.password = password;
@@ -172,6 +184,7 @@
 	}
 
 	send(data) {
+		console.log("Alternate XHR!");
 		let channel = Services.io.newChannelFromURI(
 			this.xhr.uri,
 			null,
@@ -182,7 +195,15 @@
 
 		this.xhr.httpchannel = channel.QueryInterface(Components.interfaces.nsIHttpChannel);
 		this.xhr.httpchannel.loadFlags |= Components.interfaces.nsIRequest.LOAD_BYPASS_CACHE;
-		//this.xhr.httpchannel.notificationCallbacks = aNotificationCallbacks;
+
+		// notification callbacks are only needed, if you want to use the internal auth methods, that is
+		// - not adding an Authentication header by yourself
+		// - let the netwerk module run an unauthenticated request first
+		// - let the netwerk module parse the returned WWW-Authentication header and pick an auth method
+		// - let the netwerk module notify our notificationCallbacks that a password is required
+		// - let the network module handle the auth process
+		// special care needs to be taken of redirects, if notificationCallbacks is used
+		// this.xhr.httpchannel.notificationCallbacks = aNotificationCallbacks;
 		
 		// Set default content type.
 		if (!this.xhr.headers.hasOwnProperty("Content-Type")) {
@@ -200,6 +221,11 @@
 		  }
 		}
 
+		// if username and password have been specified, add Authorization header
+		if (this.xhr.user && this.xhr.password) {
+			this.xhr.httpchannel.setRequestHeader("Authorization", "Basic " + this._b64EncodeUnicode(this.username + ':' + this.password), false);
+		}
+		
 		// Will overwrite the content-Type, so it must be called after the headers have been set.
 		this._prepHttpChannelUploadData(this.xhr.httpchannel, this.xhr.method, data, this.xhr.headers["Content-Type"]);
 
@@ -213,8 +239,7 @@
 		this.xhr.httpchannel.asyncOpen(this.listener, this.xhr.httpchannel);
 	}
 
-	get responseXML() {throw new Error("responseXML not implemented");};
-
+	get responseURL() {return this.xhr.httpchannel.URI.spec; }
 	get responseText() {return this.xhr.responseText};
 	get status() {return this.xhr.responseStatus};
 	get statusText() {return this.xhr.responseStatusText};
@@ -241,6 +266,8 @@
 
 	/* not used by cardbook */
 	
+	get responseXML() {throw new Error("responseXML not implemented");};
+
 	get response() {throw new Error("response not implemented");};
 	set response(v) {throw new Error("response not implemented");};
 
