@@ -11,14 +11,20 @@
 		this.xhr.responseStatusText = null;
 		this.xhr.responseText = null;
 		this.xhr.httpchannel = null;
+		this.xhr.mozBackgroundRequest = false;		
+		this.xhr.method = null;
+		this.xhr.uri = null;
+		this.xhr.async = true;
+		this.xhr.user = "";
+		this.xhr.password = "";
+		this.xhr.timeout = 0;
+		this.xhr.timer = Components.classes["@mozilla.org/timer;1"].createInstance(
+                      Components.interfaces.nsITimer);
 
 		this.onreadystatechange = function () {};
 		this.onerror = function () {};
 		this.onload = function () {};
 		this.ontimeout = function () {};
-		
-		this.xhr.timer = Components.classes["@mozilla.org/timer;1"].createInstance(
-                      Components.interfaces.nsITimer);
 		
 		var self = this;
 		this.listener = {
@@ -146,9 +152,6 @@
 		if (this.xhr.httpchannel) this.xhr.httpchannel.cancel(rv);
 	}
 
-	get loadFlags() {return this.xhr.loadFlags};
-	set loadFlags(v) {this.xhr.loadFlags = v};
-
 	get timeout() {return this.xhr.timeout};
 	set timeout(v) {this.xhr.timeout = v};
 	
@@ -178,7 +181,7 @@
 			Components.interfaces.nsIContentPolicy.TYPE_OTHER);
 
 		this.xhr.httpchannel = channel.QueryInterface(Components.interfaces.nsIHttpChannel);
-		this.xhr.httpchannel.loadFlags |= this.xhr.loadFlags;
+		this.xhr.httpchannel.loadFlags |= Components.interfaces.nsIRequest.LOAD_BYPASS_CACHE;
 		//this.xhr.httpchannel.notificationCallbacks = aNotificationCallbacks;
 		
 		// Set default content type.
@@ -214,16 +217,9 @@
 
 	get responseText() {return this.xhr.responseText};
 	get status() {return this.xhr.responseStatus};
-	get statusText() {return this.xhr.this.xhr.responseStatusText};
+	get statusText() {return this.xhr.responseStatusText};
 	get channel() {return this.xhr.httpchannel};
-
-	overrideMimeType(mime) {
-		// silent ignore, no idea what this does
-	}
 	
-	getRequestHeader(header) {
-		return this.xhr.httpchannel.getRequestHeader(header);
-	}
 	getResponseHeader(header) {
 		return this.xhr.httpchannel.getResponseHeader(header);
 	}
@@ -234,19 +230,27 @@
 
 	/** todo **/
 
-	get response() {return this.xhr.response};
-	set response(v) {this.xhr.response = v};
-
-	get responseType() {return this.xhr.responseType};
-	set responseType(v) {this.xhr.responseType = v};
-
-	get upload() {return this.xhr.upload};
-	set upload(v) {this.xhr.upload = v};
-
-	get withCredentials() {return this.xhr.withCredentials};
-	set withCredentials(v) {this.xhr.withCredentials = v};
-
 	get mozBackgroundRequest() {return this.xhr.mozBackgroundRequest};
 	set mozBackgroundRequest(v) {this.xhr.mozBackgroundRequest = v};
+
+	overrideMimeType(mime) {
+		// silent ignore, no idea what this does
+	}
 	
+
+
+	/* not used by cardbook */
+	
+	get response() {throw new Error("response not implemented");};
+	set response(v) {throw new Error("response not implemented");};
+
+	get responseType() {throw new Error("response not implemented");};
+	set responseType(v) {throw new Error("response not implemented");};
+
+	get upload() {throw new Error("upload not implemented");};
+	set upload(v) {throw new Error("upload not implemented");};
+
+	get withCredentials() {throw new Error("withCredentials not implemented");};
+	set withCredentials(v) {throw new Error("withCredentials not implemented");};
+
 }
