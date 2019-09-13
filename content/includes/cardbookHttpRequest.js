@@ -36,7 +36,6 @@
 		this._xhr.user = "";
 		this._xhr.password = "";
 
-		this._xhr.hasHitTimeout = false;
 		this._xhr.timeout = 0;
 		this._xhr.timer = Components.classes["@mozilla.org/timer;1"].createInstance(
                       Components.interfaces.nsITimer);
@@ -162,12 +161,22 @@
 				try {
 					self._xhr.responseStatus = aChannel.responseStatus;
 				} catch (ex) {
-					self._xhr.readyState = 4;
-					self.onreadystatechange();				
-					if (self._xhr.hasHitTimeout) {
-						self.ontimeout();
-					} else {
-						self.onerror();
+					switch (aStatus) {
+						case Components.results.NS_ERROR_NET_TIMEOUT:
+							self._xhr.readyState = 4;
+							self.onreadystatechange();				
+							self.ontimeout();
+							break;
+						case Components.results.NS_BINDING_ABORTED:
+							self._xhr.readyState = 0;
+							self.onreadystatechange();				
+							self.onerror();
+							break;
+						default:
+							self._xhr.readyState = 4;
+							self.onreadystatechange();				
+							self.onerror();
+							break;
 					}
 					return;
 				}
@@ -242,7 +251,6 @@
 		let that = this;
 		let event = {
 			notify: function(timer) {
-				that._xhr.hasHitTimeout = true;
 				that._cancel(Components.results.NS_ERROR_NET_TIMEOUT)
 			}
 		}
@@ -252,8 +260,8 @@
 			Components.interfaces.nsITimer.TYPE_ONE_SHOT);
 	}
 
-	_cancel(error = Components.results.NS_BINDING_ABORTED) {
-		if (this._xhr.httpchannel) {
+	_cancel(error) {
+		if (this._xhr.httpchannel && error) {
 			this._xhr.httpchannel.cancel(error);
 		}
 	}
