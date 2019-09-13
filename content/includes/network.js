@@ -178,6 +178,7 @@ var network = {
             syncData.req.timeout = eas.Base.getConnectionTimeout();
 
             syncData.req.ontimeout = function () {
+                console.log("ontimeout: " + syncData.req.readyState + " (" + syncData.req.status + ")");
                 if (allowSoftFail) {
                     resolve("");
                 } else {
@@ -185,7 +186,12 @@ var network = {
                 }
             };
 
+            syncData.req.onreadystatechange = function () {
+                console.log("onreadystatechange: " + syncData.req.readyState + " (" + syncData.req.status + ")");
+            };
+
             syncData.req.onerror = function () {
+                console.log("onerror: " + syncData.req.readyState + " (" + syncData.req.status + ")");
                 if (allowSoftFail) {
                     resolve("");
                 } else {
@@ -198,6 +204,7 @@ var network = {
             };
 
             syncData.req.onload = function() {
+                console.log("onload: " + syncData.req.readyState + " (" + syncData.req.status + ")");
                 let response = syncData.req.responseText;
                 switch(syncData.req.status) {
 

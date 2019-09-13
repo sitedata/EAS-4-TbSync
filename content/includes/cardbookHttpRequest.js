@@ -1,24 +1,44 @@
-"use strict";
+/*
+ * This file is part of CardBook, contributed by John Bieling.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. 
+ *
+ * Limitations:
+ * - no real event support (cannot add eventlisteners)
+ * - send only supports string body/data
+ * - onprogress not supported
+ * - readyState 2 & 3 not supported
+ */
+ 
+ "use strict";
 
  var CardbookHttpRequest = class {
 	constructor() {
 		// a private object to store xhr related properties
-		this.xhr = {};
-		this.xhr.useStreamLoader = true;
-		this.xhr.headers = {};
-		this.xhr.readyState = 0;
-		this.xhr.responseStatus = null;
-		this.xhr.responseStatusText = null;
-		this.xhr.responseText = null;
-		this.xhr.httpchannel = null;
-		this.xhr.mozBackgroundRequest = false;		
-		this.xhr.method = null;
-		this.xhr.uri = null;
-		this.xhr.async = true;
-		this.xhr.user = "";
-		this.xhr.password = "";
-		this.xhr.timeout = 0;
-		this.xhr.timer = Components.classes["@mozilla.org/timer;1"].createInstance(
+		this._xhr = {};
+		this._xhr.useStreamLoader = true;
+
+		this._xhr.mozBackgroundRequest = false;		
+
+		this._xhr.loadFlags =  Components.interfaces.nsIRequest.LOAD_BYPASS_CACHE;
+		this._xhr.userContextId = null;
+		this._xhr.headers = {};
+		this._xhr.readyState = 0;
+		this._xhr.responseStatus = null;
+		this._xhr.responseStatusText = null;
+		this._xhr.responseText = null;
+		this._xhr.httpchannel = null;
+		this._xhr.method = null;
+		this._xhr.uri = null;
+		this._xhr.async = true;
+		this._xhr.user = "";
+		this._xhr.password = "";
+
+		this._xhr.hasHitTimeout = false;
+		this._xhr.timeout = 0;
+		this._xhr.timer = Components.classes["@mozilla.org/timer;1"].createInstance(
                       Components.interfaces.nsITimer);
 
 		this.onreadystatechange = function () {};
@@ -27,6 +47,82 @@
 		this.ontimeout = function () {};
 		
 		var self = this;
+
+		this.notificationCallbacks = {
+			// nsIInterfaceRequestor
+			getInterface : function(aIID) {
+				if (aIID.equals(Components.interfaces.nsIAuthPrompt2)) {
+					// implement a custom nsIAuthPrompt2 - needed for auto authorization
+				} else if (aIID.equals(Components.interfaces.nsIAuthPrompt)) {
+					// implement a custom nsIAuthPrompt
+				} else if (aIID.equals(Components.interfaces.nsIAuthPromptProvider)) {
+					// implement a custom nsIAuthPromptProvider
+				} else if (aIID.equals(Components.interfaces.nsIPrompt)) {
+					// implement a custom nsIPrompt
+				} else if (aIID.equals(Components.interfaces.nsIProgressEventSink)) {
+					// implement a custom nsIProgressEventSink
+				} else if (aIID.equals(Components.interfaces.nsIChannelEventSink)) {
+					// implement a custom nsIChannelEventSink
+					return self.redirect;
+				}
+				throw Components.results.NS_ERROR_NO_INTERFACE;
+			},
+		};
+			
+		this.redirect = {
+			// nsIChannelEventSink implementation
+			asyncOnChannelRedirect: function(aOldChannel, aNewChannel, aFlags, aCallback) {
+				let uploadData;
+				let uploadContent;
+				if (aOldChannel instanceof Ci.nsIUploadChannel &&
+					aOldChannel instanceof Ci.nsIHttpChannel &&
+					aOldChannel.uploadStream) {
+					uploadData = aOldChannel.uploadStream;
+					uploadContent = aOldChannel.getRequestHeader("Content-Type");
+				}
+
+				aNewChannel.QueryInterface(Ci.nsIHttpChannel);
+				aOldChannel.QueryInterface(Ci.nsIHttpChannel);
+							
+				function copyHeader(aHdr) {
+					try {
+						let hdrValue = aOldChannel.getRequestHeader(aHdr);
+						if (hdrValue) {
+							aNewChannel.setRequestHeader(aHdr, hdrValue, false);
+						}
+					} catch (e) {
+						if (e.code != Components.results.NS_ERROR_NOT_AVAILIBLE) {
+							// The header could possibly not be available, ignore that
+							// case but throw otherwise
+							throw e;
+						}
+					}
+				}
+
+				// If any other header is used, it should be added here. We might want
+				// to just copy all headers over to the new channel.
+				copyHeader("Prefer");
+				copyHeader("Depth");
+				copyHeader("Originator");
+				copyHeader("Recipient");
+				copyHeader("If-None-Match");
+				copyHeader("If-Match");
+				
+				// CAUTION: Only copy Authorization headers you manually added
+				// If you use the auto authorization feature of nsIHttpChannel, you must not copy the
+				// header, as nsIHttpChannel will see the header and will stop being in charge for any
+				// subsequent call.
+				copyHeader("Authorization");
+				
+				self._prepHttpChannelUploadData(
+					aNewChannel, 
+					aOldChannel.requestMethod, 
+					uploadData, 
+					uploadContent);
+				aCallback.onRedirectVerifyCallback(Components.results.NS_OK);
+			}
+		};
+		
 		this.listener = {
 			_data: "",
 			_stream: null,
@@ -59,25 +155,29 @@
 			},
 			
 			processResponse: function(aChannel, aContext, aStatus, aResult) {
-				self.xhr.httpchannel = aChannel;
-				self.xhr.responseText = aResult;
-				self.xhr.responseStatus = aStatus;
+				self._xhr.httpchannel = aChannel;
+				self._xhr.responseText = aResult;
+				self._xhr.responseStatus = 0;
 				
 				try {
-					self.xhr.responseStatus = aChannel.responseStatus;
+					self._xhr.responseStatus = aChannel.responseStatus;
 				} catch (ex) {
-					console.log("Error: " + self.xhr.responseStatus);
-					self.onerror();
+					self._xhr.readyState = 4;
+					self.onreadystatechange();				
+					if (self._xhr.hasHitTimeout) {
+						self.ontimeout();
+					} else {
+						self.onerror();
+					}
 					return;
 				}
-				self.xhr.responseStatusText = aChannel.responseStatusText;
-				self.xhr.responseText = aResult;
-				self.xhr.readyState = 4;
+				self._xhr.responseStatusText = aChannel.responseStatusText;
+				self._xhr.responseText = aResult;
+				self._xhr.readyState = 4;
 				self.onreadystatechange();				
-				console.log("OK: " + self.xhr.responseStatus);
 				self.onload();
 			}
-		}		
+		};
 	}
 
 	/** private **/
@@ -139,123 +239,141 @@
     }
 	
 	_startTimeout() {
-		let rv = Components.results.NS_ERROR_NET_TIMEOUT;
-		let xhr = this.xhr;
+		let that = this;
 		let event = {
 			notify: function(timer) {
-				if (xhr.httpchannel) xhr.httpchannel.cancel(rv);
+				that._xhr.hasHitTimeout = true;
+				that._cancel(Components.results.NS_ERROR_NET_TIMEOUT)
 			}
 		}
-		this.xhr.timer.initWithCallback(
+		this._xhr.timer.initWithCallback(
 			event, 
-			this.xhr.timeout, 
+			this._xhr.timeout, 
 			Components.interfaces.nsITimer.TYPE_ONE_SHOT);
 	}
 
-
-
+	_cancel(error = Components.results.NS_BINDING_ABORTED) {
+		if (this._xhr.httpchannel) {
+			this._xhr.httpchannel.cancel(error);
+		}
+	}
 
 
 
 	/** public **/
 
 	abort() {
-		let rv = Components.results.NS_BINDING_ABORTED;
-		if (this.xhr.httpchannel) this.xhr.httpchannel.cancel(rv);
+		this._cancel(Components.results.NS_BINDING_ABORTED);
 	}
 
-	get timeout() {return this.xhr.timeout};
-	set timeout(v) {this.xhr.timeout = v};
+	get loadFlags() {return this._xhr.loadFlags};
+	set loadFlags(v) {this._xhr.loadFlags = v};
+
+	get userContextId() {return this._xhr.userContextId};
+	set userContextId(v) {this._xhr.userContextId = v};
+
+	get timeout() {return this._xhr.timeout};
+	set timeout(v) {this._xhr.timeout = 100};
 	
 	setRequestHeader(header, value) {
-		this.xhr.headers[header] = value;
+		this._xhr.headers[header] = value;
 	}
 
-	get readyState() {return this.xhr.readyState};
+	get readyState() {return this._xhr.readyState};
 
 	open(method, url, async = true, user = "", password = "") {
-		this.xhr.method = method;
+		this._xhr.method = method;
 		try {
-			this.xhr.uri = Services.io.newURI(url);
+			this._xhr.uri = Services.io.newURI(url);
 		} catch (e) {
 			Components.utils.reportError(e);
 			throw new Error("Invalid URL <"+url+">");
 		}
-		this.xhr.async = async; //we should throw on false
-		this.xhr.user = user;
-		this.xhr.password = password;
-		this.xhr.readyState = 1;
+		if (!async) throw new Error ("Sync HttpRequests not supported");
+		this._xhr.async = true;
+		
+		this._xhr.user = user;
+		this._xhr.password = password;
+		this._xhr.readyState = 1;
 		this.onreadystatechange();
 	}
 
 	send(data) {
-		console.log("Alternate XHR!");
-		console.log("Data: " + data);
+		let options = {};
+		if (this._xhr.userContextId !== null) {
+			options.userContextId = this._xhr.userContextId;
+		}
+
 		let channel = Services.io.newChannelFromURI(
-			this.xhr.uri,
+			this._xhr.uri,
 			null,
-			Services.scriptSecurityManager.createCodebasePrincipal(this.xhr.uri, { /* userContextId */ }),
+			Services.scriptSecurityManager.createCodebasePrincipal(this._xhr.uri, options),
 			null,
 			Components.interfaces.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL,
 			Components.interfaces.nsIContentPolicy.TYPE_OTHER);
 
-		this.xhr.httpchannel = channel.QueryInterface(Components.interfaces.nsIHttpChannel);
-		this.xhr.httpchannel.loadFlags |= Components.interfaces.nsIRequest.LOAD_BYPASS_CACHE;
-
-		// notification callbacks are only needed, if you want to use the internal auth methods, that is
-		// - not adding an Authentication header by yourself
-		// - let the netwerk module run an unauthenticated request first
-		// - let the netwerk module parse the returned WWW-Authentication header and pick an auth method
-		// - let the netwerk module notify our notificationCallbacks that a password is required
-		// - let the network module handle the auth process
-		// special care needs to be taken of redirects, if notificationCallbacks is used
-		// this.xhr.httpchannel.notificationCallbacks = aNotificationCallbacks;
+		this._xhr.httpchannel = channel.QueryInterface(Components.interfaces.nsIHttpChannel);
+		this._xhr.httpchannel.loadFlags |= this._xhr.loadFlags;
+		this._xhr.httpchannel.notificationCallbacks = this.notificationCallbacks;
 		
 		// Set default content type.
-		if (!this.xhr.headers.hasOwnProperty("Content-Type")) {
-		  this.xhr.headers["Content-Type"] = "application/xml; charset=utf-8";
+		if (!this._xhr.headers.hasOwnProperty("Content-Type")) {
+		  this._xhr.headers["Content-Type"] = "application/xml; charset=utf-8";
 		}
 		
 		// Set default accept value.
-		if (!this.xhr.headers.hasOwnProperty("Accept")) {
-		  this.xhr.headers["Accept"] = "*/*";
+		if (!this._xhr.headers.hasOwnProperty("Accept")) {
+		  this._xhr.headers["Accept"] = "*/*";
 		}
 
-		for (let header in this.xhr.headers) {
-		  if (this.xhr.headers.hasOwnProperty(header)) {
-			this.xhr.httpchannel.setRequestHeader(header, this.xhr.headers[header], false);
+		// if user and password have been specified, add Authorization header
+		if (this._xhr.user && this._xhr.password) {
+			this._xhr.headers["Authorization"] = "Basic " + this._b64EncodeUnicode(this._xhr.user + ':' + this._xhr.password);
+		}
+
+		// calculate length of request and add header
+		if (data) {
+			let textEncoder = new TextEncoder();
+			let encoded = textEncoder.encode(data);
+			this._xhr.headers["Content-Length"] = encoded.length;
+		}
+		
+		for (let header in this._xhr.headers) {
+		  if (this._xhr.headers.hasOwnProperty(header)) {
+			this._xhr.httpchannel.setRequestHeader(header, this._xhr.headers[header], false);
 		  }
 		}
 
-		// if username and password have been specified, add Authorization header
-		if (this.xhr.user && this.xhr.password) {
-			this.xhr.httpchannel.setRequestHeader("Authorization", "Basic " + this._b64EncodeUnicode(this.username + ':' + this.password), false);
-		}
-		
-		// Will overwrite the content-Type, so it must be called after the headers have been set.
-		this._prepHttpChannelUploadData(this.xhr.httpchannel, this.xhr.method, data, this.xhr.headers["Content-Type"]);
 
-		if (this.xhr.useStreamLoader) {
+		
+		// Will overwrite the Content-Type, so it must be called after the headers have been set.
+		this._prepHttpChannelUploadData(this._xhr.httpchannel, this._xhr.method, data, this._xhr.headers["Content-Type"]);
+
+		if (this._xhr.useStreamLoader) {
 			let loader =  Components.classes["@mozilla.org/network/stream-loader;1"].createInstance(Components.interfaces.nsIStreamLoader);
 			loader.init(this.listener);
 			this.listener = loader;
 		}        
 
 		this._startTimeout();
-		this.xhr.httpchannel.asyncOpen(this.listener, this.xhr.httpchannel);
+		this._xhr.httpchannel.asyncOpen(this.listener, this._xhr.httpchannel);
 	}
 
-	get responseURL() {return this.xhr.httpchannel.URI.spec; }
-	get responseText() {return this.xhr.responseText};
-	get status() {return this.xhr.responseStatus};
-	get statusText() {return this.xhr.responseStatusText};
-	get channel() {return this.xhr.httpchannel};
+	get responseURL() {return this._xhr.httpchannel.URI.spec; }
+	get responseText() {return this._xhr.responseText};
+	get status() {return this._xhr.responseStatus};
+	get statusText() {return this._xhr.responseStatusText};
+	get channel() {return this._xhr.httpchannel};
 	
 	getResponseHeader(header) {
 		try {
-			return this.xhr.httpchannel.getResponseHeader(header);
+			return this._xhr.httpchannel.getResponseHeader(header);
 		} catch (e) {
-			console.log("Failed to get header <"+header+">");
+			if (e.code != Components.results.NS_ERROR_NOT_AVAILIBLE) {
+				// The header could possibly not be available, ignore that
+				// case but throw otherwise
+				throw e;
+			}			
 		}
 		return null;
 	}
@@ -266,15 +384,14 @@
 
 	/** todo **/
 
-	get mozBackgroundRequest() {return this.xhr.mozBackgroundRequest};
-	set mozBackgroundRequest(v) {this.xhr.mozBackgroundRequest = v};
+	//	If true, no load group is associated with the request, with security dialogs prevented from being shown to the user.
+	// In cases in where a security dialog (such as authentication or a bad certificate notification) would normally be shown, this request fails instead.
+	get mozBackgroundRequest() {return this._xhr.mozBackgroundRequest};
+	set mozBackgroundRequest(v) {this._xhr.mozBackgroundRequest = v};
 
 	overrideMimeType(mime) {
 		// silent ignore, no idea what this does
 	}
-	
-	//redirects
-	//handle Content-Length
 
 	/* not used by cardbook */
 	
